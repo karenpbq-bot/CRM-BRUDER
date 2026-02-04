@@ -60,21 +60,35 @@ def mostrar(conectar):
                               title="Utilidad por Producto (S/)", color_continuous_scale='Viridis')
                 st.plotly_chart(fig_p, use_container_width=True)
 
-    # --- TAB 2: COBRANZA (Demora + Filtros + Scatter) ---
+    # --- TAB 2: CLIENTES (Rentabilidad y Cobranza) ---
     with t2:
-        st.subheader("🤝 Estado de Cobranza y Riesgo")
-        if not df_v_raw.empty:
+        st.subheader("🤝 Rentabilidad y Estado de Cobranza por Cliente")
+        if not df_v_raw.empty and not df_dv_raw.empty:
+            # 1. Preparar datos de ventas y costos por cliente
             df_c = df_v_raw.copy()
             df_c['Cliente_Nom'] = df_c['clientes'].apply(lambda x: x['nombre_comercial'])
             
-            pagos_clean = df_pag_raw.groupby('venta_id')['monto_pagado'].sum().reset_index(name='Total_Pagado')
-            df_c = df_c.merge(pagos_clean, left_on='id', right_on='venta_id', how='left').fillna(0)
-            df_c['fecha'] = pd.to_datetime(df_c['fecha']).dt.tz_localize(None)
-            df_c['Demora'] = (datetime.now() - df_c['fecha']).dt.days
+            # Calcular el costo total por cada ticket de venta
+            df_det = df_dv_raw.copy()
+            df_det['costo_total_fila'] = df_det['cantidad'] * df_det['productos'].apply(lambda x: x['costo'])
+            costos_por_venta = df_det.groupby('venta_id')['costo_total_fila'].sum().reset_index(name='Costo_Total_Venta')
             
-            df_c_grp = df_c.groupby('Cliente_Nom').agg({'total': 'sum', 'Total_Pagado': 'sum', 'Demora': 'max'}).reset_index()
-            df_c_grp['Deuda_Valor'] = (df_c_grp['total'] - df_c_grp['Total_Pagado']).round(2)
-            df_c_grp['Deuda_Pct'] = ((df_c_grp['Deuda_Valor'] / df_c_grp['total']) * 100).round(2)
+            # Unir ventas con sus costos y con los pagos realizados
+            pagos_clean = df_pag_raw.groupby('venta_id')['monto_pagado'].sum().reset_index(name='Total_Pagado')
+            df_c = df_c.merge(costos_por_venta, left_on='id', right_on='venta_id', how='left').fillna(0)
+            df_c = df_c.merge(pagos_clean, left_on='id', right_on='venta_id', how='left').fillna(0)
+            
+            # 2. Agrupar por Cliente
+            df_c_grp = df_c.groupby('Cliente_Nom').agg({
+                'total': 'sum', 
+                'Costo_Total_Venta': 'sum',
+                'Total_Pagado': 'sum'
+            }).reset_index()
+            
+            # 3. Calcular métricas solicitadas: Margen Soles y Porcentual
+            df_c_grp['Utilidad_S/'] = (df_c_grp['total'] - df_c_grp['Costo_Total_Venta']).round(2)
+            df_c_grp['Margen_%'] = ((df_c_grp['Utilidad_S/'] / df_c_grp['total']) * 100).round(2)
+            df_c_grp['Deuda_S/'] = (df_c_grp['total'] - df_c_grp['Total_Pagado']).round(2)
 
             # Filtro Dinámico
             lista_c = sorted(df_c_grp['Cliente_Nom'].unique().tolist())
@@ -82,13 +96,16 @@ def mostrar(conectar):
             df_c_f = df_c_grp[df_c_grp['Cliente_Nom'].isin(sel_c)]
 
             if not df_c_f.empty:
-                st.dataframe(df_c_f.style.format({
-                    'total': 'S/ {:.2f}', 'Total_Pagado': 'S/ {:.2f}', 'Deuda_Valor': 'S/ {:.2f}', 
-                    'Deuda_Pct': '{:.2f}%', 'Demora': '{:.0f} días'
+                # Tabla de datos con la nueva columna de Margen
+                st.dataframe(df_c_f[['Cliente_Nom', 'total', 'Utilidad_S/', 'Margen_%', 'Deuda_S/']].style.format({
+                    'total': 'S/ {:.2f}', 'Utilidad_S/': 'S/ {:.2f}', 'Margen_%': '{:.2f}%', 'Deuda_S/': 'S/ {:.2f}'
                 }), use_container_width=True, hide_index=True)
 
-                fig_c = px.scatter(df_c_f, x='Demora', y='Deuda_Valor', size='total', color='Deuda_Pct',
-                                  hover_name='Cliente_Nom', title="Riesgo: Demora (Días) vs Deuda (S/)", color_continuous_scale='Reds')
+                # Nuevo Gráfico de Margen de Ganancia
+                fig_c = px.bar(df_c_f, x='Cliente_Nom', y='Utilidad_S/', color='Margen_%',
+                               text='Utilidad_S/', title="Margen de Ganancia por Cliente (S/ y %)",
+                               labels={'Utilidad_S/': 'Ganancia (S/)', 'Margen_%': 'Margen %'},
+                               color_continuous_scale='Greens')
                 st.plotly_chart(fig_c, use_container_width=True)
 
     # --- TAB 3: VENDEDORES (Rendimiento + Margen %) ---
