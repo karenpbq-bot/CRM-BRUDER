@@ -21,8 +21,9 @@ st.set_page_config(
 )
 
 # --- CONFIGURACIÓN DE SUPABASE ---
-SUPABASE_URL = "https://amazezckxnvsglkoaygl.supabase.co"
-SUPABASE_KEY = "sb_publishable_tFgB3zR46aRobZPDBZ1wiQ_XxVfgg3t" 
+# Aquí le decimos que busque en el "cajón de secretos" de Streamlit
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
