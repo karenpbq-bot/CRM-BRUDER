@@ -40,7 +40,7 @@ def mostrar(conectar):
             res_c = supabase.table("sucursales").select("id, nombre_sede, cliente_id, clientes(nombre_comercial)").eq("vendedor_asignado", v_reg).execute()
             
             if res_c.data:
-                # --- NUEVA SUB-SECCIÓN: BUSCADOR MULTISELECCIÓN ---
+               # --- NUEVA SUB-SECCIÓN: BUSCADOR + LISTA AUTOMÁTICA ---
                 if "v_cli_v11" not in st.session_state:
                     # Mapeamos la cartera para el buscador
                     cartera_opciones = {f"{r['clientes']['nombre_comercial']} | {r['nombre_sede']}": r for r in res_c.data}
@@ -48,14 +48,15 @@ def mostrar(conectar):
                     clientes_buscados = st.multiselect(
                         "🔍 Ubicar Cliente(s):", 
                         options=list(cartera_opciones.keys()),
-                        help="Escriba el nombre del cliente o la sede para filtrar."
+                        help="Deje vacío para ver toda su cartera o escriba para filtrar."
                     )
 
-                    if not clientes_buscados:
-                        st.info("Seleccione uno o más clientes del buscador para iniciar pedidos.")
+                    # LÓGICA: Si no hay búsqueda, mostramos todo. Si hay búsqueda, filtramos.
+                    lista_final = clientes_buscados if clientes_buscados else list(cartera_opciones.keys())
                     
-                    # Iteramos solo sobre los seleccionados
-                    for seleccion in clientes_buscados:
+                    st.write(f"### 👥 Cartera de Clientes ({len(lista_final)})")
+                    
+                    for seleccion in lista_final:
                         row = cartera_opciones[seleccion]
                         col1, col2, col3 = st.columns([4, 3, 2])
                         nom_cli = row['clientes']['nombre_comercial']
