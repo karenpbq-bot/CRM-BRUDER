@@ -15,6 +15,9 @@ def mostrar(conectar):
     # --- PESTAÑA 1: MAESTRO DE CLIENTES (REGISTRO Y EDICIÓN) ---
     with t1:
         st.subheader("Catálogo de Clientes")
+        # 1. Lógica de limpieza: Creamos una llave que cambia al guardar
+        if "cli_submit_count" not in st.session_state:
+            st.session_state.cli_submit_count = 0
         # Carga de datos actuales
         res_c = supabase.table("clientes").select("id, nombre_comercial, ruc_dni, rubro, contacto_nombre").execute()
         df_c = pd.DataFrame(res_c.data) if res_c.data else pd.DataFrame()
@@ -33,7 +36,8 @@ def mostrar(conectar):
                 c_data = df_c[df_c['id'] == id_c].iloc[0]
                 v_nom, v_ruc, v_rub, v_con = c_data['nombre_comercial'], c_data['ruc_dni'], c_data['rubro'], c_data['contacto_nombre']
 
-        with st.form("form_maestro_cliente"):
+        # Reemplaza desde aquí hasta el final de la Pestaña 1
+        with st.form(key=f"form_maestro_cliente_{st.session_state.cli_submit_count}"):
             st.write(f"### {'📝 Editando: ' + str(v_nom) if id_c else '✨ Nuevo Registro'}")
             c1, c2 = st.columns(2)
             nom_f = c1.text_input("Razón Social / Nombre Comercial", value=v_nom).upper().strip()
@@ -41,13 +45,11 @@ def mostrar(conectar):
             
             c3, c4 = st.columns(2)
             rub_f = c3.text_input("Rubro (ej. Taller, Lubricentro)", value=v_rub).upper().strip()
-            con_f = c4.text_input("Nombre de Contacto Principal", value=v_con).upper().strip()
+            # Hemos eliminado el campo de Contacto Principal aquí
 
             if st.form_submit_button("💾 Guardar Cambios"):
-                if not ruc_f:
-                    st.error("❌ El RUC o DNI es obligatorio.")
-                elif not nom_f:
-                    st.error("❌ El nombre comercial es obligatorio.")
+                if not ruc_f or not nom_f:
+                    st.error("❌ El RUC/DNI y Nombre son obligatorios.")
                 else:
                     datos = {"nombre_comercial": nom_f, "ruc_dni": ruc_f, "rubro": rub_f, "contacto_nombre": con_f}
                     try:
@@ -58,13 +60,12 @@ def mostrar(conectar):
                             supabase.table("clientes").insert(datos).execute()
                             st.success(f"✅ Cliente {nom_f} registrado con éxito.")
                         
+                        # ESTO ES LO QUE LIMPIA LOS CAMPOS:
+                        st.session_state.cli_submit_count += 1
                         time.sleep(1)
                         st.rerun()
                     except Exception as e:
-                        if "23505" in str(e):
-                            st.error(f"⚠️ El RUC/DNI '{ruc_f}' ya está registrado con otro cliente.")
-                        else:
-                            st.error(f"❌ Error: {e}")
+                        st.error(f"❌ Error: {e}")
 
     # --- PESTAÑA 2: GESTIÓN DE SEDES ---
     with t2:
@@ -125,18 +126,30 @@ def mostrar(conectar):
                         else:
                             st.error("Nombre y dirección son obligatorios.")
 
-    # --- PESTAÑA 3: BUSCADOR ---
+    # --- PESTAÑA 3: BUSCADOR Y LIMPIEZA ---
     with t3:
-        st.subheader("🔍 Buscador de Cartera Detallado")
-        res_full = supabase.table("sucursales").select("nombre_sede, distrito, vendedor_asignado, clientes(nombre_comercial, contacto_nombre, rubro)").execute()
+        st.subheader("🔍 Buscador de Cartera y Limpieza")
+        
+        # Traemos la unión de sedes con sus clientes
+        res_full = supabase.table("sucursales").select("id, nombre_sede, contacto_sede, clientes(id, nombre_comercial, ruc_dni, rubro)").execute()
+        
         if res_full.data:
-            df_full = pd.DataFrame([ {
-                "Cliente": r['clientes']['nombre_comercial'], "Rubro": r['clientes']['rubro'],
-                "Contacto": r['clientes']['contacto_nombre'], "Sede": r['nombre_sede'],
-                "Distrito": r['distrito'], "Responsable": r['vendedor_asignado']
-            } for r in res_full.data ])
+            # ESTA ES LA PARTE QUE REEMPLAZA A TU df_limpieza ANTERIOR:
+            data_busqueda = []
+            for r in res_full.data:
+                data_busqueda.append({
+                    "id_sede": r['id'],
+                    "id_cliente": r['clientes']['id'],
+                    "Cliente": r['clientes']['nombre_comercial'],
+                    "RUC": r['clientes']['ruc_dni'],
+                    "Sede": r['nombre_sede'],
+                    "Contacto_Sede": r['contacto_sede']
+                })
             
-            b_text = st.text_input("Buscar por Nombre o Sede:").upper()
+            # Aquí se crea el nuevo DataFrame que usarás para filtrar y mostrar
+            df_busqueda = pd.DataFrame(data_busqueda)
+            
+            # El buscador ahora usa df_busqueda
+            b_text = st.text_input("Filtrar por nombre de Cliente o Sede:").upper()
             if b_text:
-                df_full = df_full[df_full.apply(lambda row: b_text in str(row['Cliente']) or b_text in str(row['Sede']), axis=1)]
-            st.dataframe(df_full, use_container_width=True, hide_index=True)
+                df_busqueda = df_busqueda[df_busqueda.apply(lambda row: b_text in str(row['Cliente']) or b_text in str(row['Sede']), axis=1)]
