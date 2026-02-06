@@ -18,6 +18,7 @@ def mostrar(conectar):
         # 1. Lógica de limpieza: Creamos una llave que cambia al guardar
         if "cli_submit_count" not in st.session_state:
             st.session_state.cli_submit_count = 0
+            
         # Carga de datos actuales
         res_c = supabase.table("clientes").select("id, nombre_comercial, ruc_dni, rubro, contacto_nombre").execute()
         df_c = pd.DataFrame(res_c.data) if res_c.data else pd.DataFrame()
@@ -25,6 +26,7 @@ def mostrar(conectar):
         col_m1, col_m2 = st.columns([1, 2])
         modo_c = col_m1.radio("Acción Cliente:", ["Registrar Nuevo", "Editar Existente"], horizontal=True, key="m_cli_opt")
         
+        # v_con se mantiene solo para que la carga de datos no falle, pero no se usará en el form
         id_c, v_nom, v_ruc, v_rub, v_con = None, "", "", "", ""
 
         if modo_c == "Editar Existente" and not df_c.empty:
@@ -36,7 +38,7 @@ def mostrar(conectar):
                 c_data = df_c[df_c['id'] == id_c].iloc[0]
                 v_nom, v_ruc, v_rub, v_con = c_data['nombre_comercial'], c_data['ruc_dni'], c_data['rubro'], c_data['contacto_nombre']
 
-        # Reemplaza desde aquí hasta el final de la Pestaña 1
+        # Formulario dinámico para limpieza automática
         with st.form(key=f"form_maestro_cliente_{st.session_state.cli_submit_count}"):
             st.write(f"### {'📝 Editando: ' + str(v_nom) if id_c else '✨ Nuevo Registro'}")
             c1, c2 = st.columns(2)
@@ -45,13 +47,14 @@ def mostrar(conectar):
             
             c3, c4 = st.columns(2)
             rub_f = c3.text_input("Rubro (ej. Taller, Lubricentro)", value=v_rub).upper().strip()
-            # Hemos eliminado el campo de Contacto Principal aquí
+            # El campo de contacto principal ha sido removido exitosamente
 
             if st.form_submit_button("💾 Guardar Cambios"):
                 if not ruc_f or not nom_f:
                     st.error("❌ El RUC/DNI y Nombre son obligatorios.")
                 else:
-                    datos = {"nombre_comercial": nom_f, "ruc_dni": ruc_f, "rubro": rub_f, "contacto_nombre": con_f}
+                    # CORRECCIÓN: Se eliminó 'con_f' para evitar el NameError
+                    datos = {"nombre_comercial": nom_f, "ruc_dni": ruc_f, "rubro": rub_f}
                     try:
                         if id_c:
                             supabase.table("clientes").update(datos).eq("id", id_c).execute()
@@ -60,12 +63,15 @@ def mostrar(conectar):
                             supabase.table("clientes").insert(datos).execute()
                             st.success(f"✅ Cliente {nom_f} registrado con éxito.")
                         
-                        # ESTO ES LO QUE LIMPIA LOS CAMPOS:
+                        # Limpieza de campos y refresco de aplicación
                         st.session_state.cli_submit_count += 1
                         time.sleep(1)
                         st.rerun()
                     except Exception as e:
-                        st.error(f"❌ Error: {e}")
+                        if "23505" in str(e):
+                            st.error(f"⚠️ El RUC/DNI '{ruc_f}' ya está registrado.")
+                        else:
+                            st.error(f"❌ Error: {e}")
 
     # --- PESTAÑA 2: GESTIÓN DE SEDES ---
     with t2:
